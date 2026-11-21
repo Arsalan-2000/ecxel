@@ -34,34 +34,36 @@ export default function Toolbar({ zoom, setZoom }: { zoom: number; setZoom: (z: 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !currentSlideId) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("فقط فایل تصویری مجاز است");
+      e.target.value = "";
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("حجم فایل باید کمتر از ۱۵ مگابایت باشد");
+      e.target.value = "";
+      return;
+    }
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
-      const json = await res.json();
-      if (!res.ok) {
-        toast.error(json.error || "خطا در آپلود تصویر");
-        return;
-      }
-      // Load image to get natural dimensions for better default size
+      // Read file as data URL on the client (no server needed - works on any host)
+      const dataUrl = await readFileAsDataURL(file);
+      // Resize/compress to keep localStorage size reasonable (max ~1600px, JPEG 0.85)
+      const compressed = await compressImage(dataUrl, file.type, 1600, 0.85);
+      // Load image to get natural dimensions for default size
       const img = new Image();
       img.onload = () => {
         const maxW = 400;
         const maxH = 300;
-        let w = img.naturalWidth;
-        let h = img.naturalHeight;
-        const ratio = Math.min(maxW / w, maxH / h, 1);
-        w = w * ratio;
-        h = h * ratio;
+        const ratio = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
         addElement(currentSlideId, {
           type: "image",
           x: 100,
           y: 100,
-          width: Math.round(w),
-          height: Math.round(h),
+          width: Math.round(img.naturalWidth * ratio),
+          height: Math.round(img.naturalHeight * ratio),
           rotation: 0,
-          src: json.url,
-          alt: json.name || "تصویر",
+          src: compressed,
+          alt: file.name || "تصویر",
           objectFit: "cover",
           borderRadius: 8,
           opacity: 1,
@@ -76,17 +78,18 @@ export default function Toolbar({ zoom, setZoom }: { zoom: number; setZoom: (z: 
           width: 320,
           height: 200,
           rotation: 0,
-          src: json.url,
-          alt: json.name || "تصویر",
+          src: compressed,
+          alt: file.name || "تصویر",
           objectFit: "cover",
           borderRadius: 8,
           opacity: 1,
         } as any);
         toast.success("تصویر اضافه شد");
       };
-      img.src = json.url;
+      img.src = compressed;
     } catch (err) {
-      toast.error("خطا در آپلود تصویر");
+      console.error(err);
+      toast.error("خطا در پردازش تصویر: " + (err instanceof Error ? err.message : ""));
     } finally {
       e.target.value = "";
     }
@@ -383,4 +386,76 @@ export default function Toolbar({ zoom, setZoom }: { zoom: number; setZoom: (z: 
       </Button>
     </div>
   );
+}
+
+/**
+ * Read a File object as a data URL (base64). Pure client-side, no server needed.
+ */
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("خواندن فایل ناموفق بود"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Compress/resize an image data URL to keep localStorage size reasonable.
+ * - Max dimension: maxSize (default 1600px)
+ * - Output: JPEG (or PNG if original was PNG with transparency) at given quality
+ * SVG and GIF files are returned as-is (re-encoded as PNG to be safe in exports).
+ */
+async function compressImage(
+  dataUrl: string,
+  originalType: string,
+  maxSize = 1600,
+  quality = 0.85
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { naturalWidth: w, naturalHeight: h } = img;
+      // If image is already small, keep as-is but still re-encode to control size
+      if (w > maxSize || h > maxSize) {
+        const ratio = Math.min(maxSize / w, maxSize / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      // SVG/GIF: encode as PNG to preserve vector/raster fidelity
+      if (originalType === "image/svg+xml" || originalType === "image/gif") {
+        try {
+          resolve(canvas.toDataURL("image/png"));
+        } catch {
+          resolve(dataUrl);
+        }
+        return;
+      }
+      // PNG with possible transparency -> keep PNG if small enough, else JPEG
+      if (originalType === "image/png") {
+        // Try PNG first, fallback to JPEG if too large
+        const pngUrl = canvas.toDataURL("image/png");
+        if (pngUrl.length < 1_500_000) {
+          resolve(pngUrl);
+          return;
+        }
+      }
+      try {
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => reject(new Error("پردازش تصویر ناموفق بود"));
+    img.src = dataUrl;
+  });
 }

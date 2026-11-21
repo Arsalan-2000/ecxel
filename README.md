@@ -23,7 +23,7 @@
 - **PDF Export:** jsPDF + html2canvas (سمت کلاینت)
 - **PPTX Export:** pptxgenjs (سمت سرور، API Route)
 - **State Management:** Zustand با persist
-- **آپلود فایل:** API Route با ذخیره روی دیسک
+- **آپلود تصویر:** کاملاً سمت کلاینت با base64 و فشرده‌سازی Canvas API — نیازی به سرور یا فضای ذخیره‌سازی ندارد
 
 ## اجرا روی سیستم محلی
 
@@ -45,18 +45,15 @@ bun run dev   # یا npm run dev
 2. به [vercel.com](https://vercel.com) بروید و پروژه را import کنید.
 3. با تنظیمات پیش‌فرض Next.js دیپلوی کنید.
 
-### روش 2: GitHub Pages
+### روش 2: GitHub Pages (Static)
 
-> توجه: GitHub Pages فقط فایل‌های استاتیک را پشتیبانی می‌کند. این پروژه از API Routes استفاده می‌کند (برای آپلود تصویر و خروجی PPTX) که نیاز به Node.js runtime دارد. برای GitHub Pages:
->
-> - آپلود تصویر را به base64 در localStorage تبدیل کنید.
-> - خروجی PPTX را به سمت کلاینت با `pptxgenjs` منتقل کنید.
-
-برای build استاتیک:
+این پروژه از آپلود تصویر سمت کلاینت (base64) استفاده می‌کند و فقط یک API Route (`/api/export/pptx`) دارد. برای دیپلوی کاملاً استاتیک روی GitHub Pages می‌توانید خروجی PPTX را هم به سمت کلاینت منتقل کنید:
 
 ```bash
 NEXT_PUBLIC_STATIC_MODE=true bun run build
 ```
+
+> توجه: تصاویر به‌صورت base64 در localStorage ذخیره می‌شوند، بنابراین محدودیت ۵-۱۰ مگابایت localStorage مرورگر را در نظر بگیرید. تصاویر بزرگ به‌صورت خودکار تا حداکثر ۱۶۰۰ پیکسل فشرده می‌شوند.
 
 ## ساختار پروژه
 
@@ -64,14 +61,13 @@ NEXT_PUBLIC_STATIC_MODE=true bun run build
 src/
 ├── app/
 │   ├── api/
-│   │   ├── upload/route.ts        # آپلود تصویر
-│   │   └── export/pptx/route.ts   # ساخت PPTX
+│   │   └── export/pptx/route.ts   # ساخت PPTX (سمت سرور)
 │   ├── layout.tsx
 │   ├── page.tsx                    # صفحه اصلی
 │   └── globals.css
 ├── components/
 │   └── editor/
-│       ├── Toolbar.tsx             # نوار ابزار بالا
+│       ├── Toolbar.tsx             # نوار ابزار + آپلود تصویر (client-side) + لاجیک خروجی
 │       ├── SlideCanvas.tsx         # صفحه ویرایش اسلاید
 │       ├── SlideList.tsx           # لیست اسلایدها
 │       └── PropertiesPanel.tsx     # پنل تنظیمات عنصر

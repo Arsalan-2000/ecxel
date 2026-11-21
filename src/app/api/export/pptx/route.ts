@@ -26,11 +26,21 @@ function isHex(hex: string) {
   return /^#?[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(hex.trim());
 }
 
-async function imageToDataUrl(filePath: string): Promise<string | null> {
+async function imageToDataUrl(src: string): Promise<string | null> {
   try {
-    const abs = filePath.startsWith("/uploads/")
-      ? path.join(process.cwd(), "public", filePath)
-      : filePath;
+    // Case 1: already a data URL (base64) - the default flow for client-side uploads
+    if (src.startsWith("data:")) {
+      return src;
+    }
+    // Case 2: absolute URL (http/https) - return as-is, pptxgenjs supports fetching
+    if (src.startsWith("http://") || src.startsWith("https://")) {
+      return src;
+    }
+    // Case 3: local file path like /uploads/x.png (legacy - only works on local dev
+    // where the filesystem is writable; will not work on serverless platforms)
+    const abs = src.startsWith("/uploads/")
+      ? path.join(process.cwd(), "public", src)
+      : src;
     if (!fs.existsSync(abs)) return null;
     const buf = fs.readFileSync(abs);
     const ext = path.extname(abs).toLowerCase();
@@ -42,7 +52,6 @@ async function imageToDataUrl(filePath: string): Promise<string | null> {
       ext === ".bmp" ? "image/bmp" :
       ext === ".svg" ? "image/svg+xml" : "image/png";
     if (mime === "image/svg+xml") {
-      // pptxgenjs supports svg, but data url must be svg
       const text = buf.toString("utf-8");
       const b64 = Buffer.from(text).toString("base64");
       return `data:image/svg+xml;base64,${b64}`;
